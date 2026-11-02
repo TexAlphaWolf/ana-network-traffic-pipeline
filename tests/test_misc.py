@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from flowpipe.anonymise import Anonymiser
@@ -71,7 +73,7 @@ def test_settings_defaults_and_overrides(monkeypatch):
     settings = load_settings()
     assert settings.allowed_exporters == ("192.168.1.254/32", "10.0.0.0/24")
     assert settings.port == 9995 and settings.allow_any_exporter
-    assert str(settings.ca_bundle) == "/etc/ca.pem"
+    assert settings.ca_bundle == Path("/etc/ca.pem")  # \etc\ca.pem on Windows
 
 
 @pytest.mark.parametrize(
