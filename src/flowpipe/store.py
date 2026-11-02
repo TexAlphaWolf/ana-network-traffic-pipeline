@@ -93,7 +93,10 @@ class ClickHouse:
                 payload: bytes = response.read()
                 return payload
         except urllib.error.HTTPError as error:
-            detail = error.read(600).decode("utf-8", "replace").strip().splitlines()
+            try:
+                detail = error.read(600).decode("utf-8", "replace").strip().splitlines()
+            finally:
+                error.close()  # Python 3.14 warns about the leaked temporary file otherwise
             raise StoreError(
                 f"ClickHouse error {error.code}: {detail[0] if detail else ''}",
                 retryable=error.code != 400,
