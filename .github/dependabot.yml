@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    # Leave the minimum versions in pyproject.toml alone unless a newer one is really needed.
+    versioning-strategy: increase-if-necessary
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Move the Python version by hand, after testing it in CI.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # ClickHouse: stay on the LTS line. Grafana: bump minor versions by hand after testing.
+      - dependency-name: clickhouse/clickhouse-server
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: grafana/grafana
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

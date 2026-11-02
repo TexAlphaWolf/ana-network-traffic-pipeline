@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+
+  test:
+    name: test (Python ${{ matrix.python-version }}, Linux, real ClickHouse)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.8
+        env:
+          CLICKHOUSE_USER: ci
+          CLICKHOUSE_PASSWORD: ci-password
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      FLOWPIPE_TEST_CLICKHOUSE: http://localhost:8123
+      FLOWPIPE_TEST_USER: ci
+      FLOWPIPE_TEST_PASSWORD: ci-password
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q --cov
+
+  test-windows:
+    name: test (Python 3.14, Windows, no database)
+    runs-on: windows-latest
+    # Windows runners have no service containers: the tests that need ClickHouse are skipped
+    # here. The parsers, the CLI guards, sockets and file paths are still exercised.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  stack:
+    name: docker compose stack
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Create .env with throw-away passwords
+        run: |
+          {
+            echo "CLICKHOUSE_FLOWPIPE_PASSWORD=$(openssl rand -hex 16)"
+            echo "GRAFANA_CLICKHOUSE_PASSWORD=$(openssl rand -hex 16)"
+            echo "GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+            echo "FLOWPIPE_ALLOWED_EXPORTERS=172.16.0.0/12,192.168.0.0/16,127.0.0.1"
+            echo "FLOWPIPE_USER=$(id -u):$(id -g)"
+          } > .env
+      - name: Start ClickHouse, create the schema, start Grafana
+        run: |
+          docker compose --profile netflow up -d --build   # waits for ClickHouse and the schema (depends_on)
+          docker compose ps -a
+      - name: Generate sample traffic, load it, run the detectors
+        run: |
+          mkdir -p captures
+          docker compose run --rm flowpipe sample pcap /captures/office.pcap --minutes 30
+          docker compose run --rm flowpipe ingest /captures/office.pcap
+          docker compose run --rm flowpipe anomalies | tee anomalies.txt
+          grep -q "4 anomalies found" anomalies.txt
+          docker compose run --rm flowpipe report | grep -q "203.0.113.200"
+      - name: NetFlow collector receives IPFIX over UDP
+        run: |
+          pip install .
+          count() { docker compose run --rm flowpipe status | sed -n 's/^flows: \([0-9]*\).*/\1/p'; }
+          before=$(count)
+          flowpipe sample send 127.0.0.1 2055 --format ipfix --minutes 5
+          sleep 10
+          after=$(count)
+          echo "flows before: $before, after: $after"
+          test "$after" -gt "$before"
+          docker compose logs collector | tail -5
+      - name: Grafana is up, the datasource works and the dashboard is provisioned
+        run: |
+          set -a; . ./.env; set +a
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:3000/api/health && break || sleep 3
+          done
+          curl -fsS -u "admin:$GRAFANA_ADMIN_PASSWORD" \
+            http://127.0.0.1:3000/api/datasources/uid/flowpipe-clickhouse/health | tee health.json
+          grep -q '"status":"OK"' health.json
+          curl -fsS -u "admin:$GRAFANA_ADMIN_PASSWORD" \
+            http://127.0.0.1:3000/api/dashboards/uid/flowpipe-overview | grep -q '"Network traffic"'
+      - name: The read-only Grafana user cannot write
+        run: |
+          set -a; . ./.env; set +a
+          code=$(curl -s -o /dev/null -w '%{http_code}' -u "grafana:$GRAFANA_CLICKHOUSE_PASSWORD" \
+            http://127.0.0.1:8123/ --data 'DROP TABLE flowpipe.flows')
+          test "$code" = "403"
+      - if: failure()
+        run: docker compose --profile netflow logs --no-color | tail -150

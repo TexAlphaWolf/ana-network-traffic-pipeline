@@ -1,0 +1,36 @@
+<clickhouse>
+  <!-- Two named users instead of the open "default" one. Passwords come from the environment. -->
+  <users>
+    <default remove="remove"/>
+
+    <!-- Writer used by flowpipe: owns the flowpipe database, nothing else. -->
+    <flowpipe>
+      <password from_env="CLICKHOUSE_FLOWPIPE_PASSWORD"/>
+      <networks><ip>::/0</ip></networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT ALL ON flowpipe.*</query>
+      </grants>
+    </flowpipe>
+
+    <!-- Read-only user for Grafana. -->
+    <grafana>
+      <password from_env="GRAFANA_CLICKHOUSE_PASSWORD"/>
+      <networks><ip>::/0</ip></networks>
+      <profile>readonly</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT SELECT ON flowpipe.*</query>
+      </grants>
+    </grafana>
+  </users>
+
+  <profiles>
+    <readonly>
+      <readonly>1</readonly>
+      <max_execution_time>30</max_execution_time>
+      <max_result_rows>100000</max_result_rows>
+    </readonly>
+  </profiles>
+</clickhouse>

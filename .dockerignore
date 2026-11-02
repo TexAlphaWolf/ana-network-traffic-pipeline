@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+.env
+captures
+tests
+docs
+grafana
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache

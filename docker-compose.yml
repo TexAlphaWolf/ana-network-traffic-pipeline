@@ -1,0 +1,112 @@
+# ClickHouse + Grafana, plus flowpipe for loading data.
+#   docker compose up -d                          ClickHouse, schema, Grafana
+#   docker compose run --rm flowpipe <command>    any flowpipe command (see README)
+#   docker compose --profile netflow up -d        also start the NetFlow/IPFIX collector
+# Copy .env.example to .env and set the three passwords first.
+
+x-flowpipe-env: &flowpipe-env
+  FLOWPIPE_CLICKHOUSE_URL: http://clickhouse:8123
+  FLOWPIPE_CLICKHOUSE_USER: flowpipe
+  FLOWPIPE_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_FLOWPIPE_PASSWORD:?set CLICKHOUSE_FLOWPIPE_PASSWORD in .env}
+  FLOWPIPE_RETENTION_DAYS: ${FLOWPIPE_RETENTION_DAYS:-90}
+  FLOWPIPE_ANONYMISE_KEY: ${FLOWPIPE_ANONYMISE_KEY:-}
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_FLOWPIPE_PASSWORD: ${CLICKHOUSE_FLOWPIPE_PASSWORD:?set CLICKHOUSE_FLOWPIPE_PASSWORD in .env}
+      GRAFANA_CLICKHOUSE_PASSWORD: ${GRAFANA_CLICKHOUSE_PASSWORD:?set GRAFANA_CLICKHOUSE_PASSWORD in .env}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/flowpipe-users.xml:ro
+    ports:
+      - "127.0.0.1:8123:8123"   # HTTP, local machine only
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  init:
+    build: .
+    image: flowpipe:local
+    command: ["init-db"]
+    environment: *flowpipe-env
+    depends_on:
+      clickhouse: { condition: service_healthy }
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GRAFANA_CLICKHOUSE_PASSWORD: ${GRAFANA_CLICKHOUSE_PASSWORD:?set GRAFANA_CLICKHOUSE_PASSWORD in .env}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"   # local machine only; put a reverse proxy in front to share it
+    depends_on:
+      init: { condition: service_completed_successfully }
+    security_opt:
+      - no-new-privileges:true
+
+  # Command line access: docker compose run --rm flowpipe ingest /captures/file.pcap
+  flowpipe:
+    build: .
+    image: flowpipe:local
+    profiles: ["tools"]
+    # On Linux set FLOWPIPE_USER=$(id -u):$(id -g) in .env so files in ./captures stay yours.
+    user: "${FLOWPIPE_USER:-10001:10001}"
+    environment: *flowpipe-env
+    volumes:
+      - ./captures:/captures
+    depends_on:
+      init: { condition: service_completed_successfully }
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  # NetFlow v5/v9 and IPFIX collector. Point the router's flow export at this host, UDP 2055.
+  collector:
+    build: .
+    image: flowpipe:local
+    profiles: ["netflow"]
+    restart: unless-stopped
+    command: ["collect"]
+    environment:
+      <<: *flowpipe-env
+      FLOWPIPE_LISTEN: 0.0.0.0
+      FLOWPIPE_PORT: "2055"
+      FLOWPIPE_ALLOWED_EXPORTERS: ${FLOWPIPE_ALLOWED_EXPORTERS:-}  # empty = flowpipe refuses to start
+    ports:
+      - "${FLOWPIPE_COLLECTOR_BIND:-0.0.0.0}:2055:2055/udp"
+    depends_on:
+      init: { condition: service_completed_successfully }
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  clickhouse-data:
+  grafana-data:
