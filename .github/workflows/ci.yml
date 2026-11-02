@@ -67,6 +67,40 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  real-exporter:
+    name: real exporter (softflowd, NetFlow ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["5", "9", "10"]
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.8
+        env:
+          CLICKHOUSE_USER: ci
+          CLICKHOUSE_PASSWORD: ci-password
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      FLOWPIPE_CLICKHOUSE_URL: http://127.0.0.1:8123
+      FLOWPIPE_CLICKHOUSE_USER: ci
+      FLOWPIPE_CLICKHOUSE_PASSWORD: ci-password
+      FLOWPIPE_DATABASE: exporter_check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install .
+      - run: sudo apt-get install -y --no-install-recommends softflowd
+      - name: Real HTTP traffic, exported by softflowd, collected and compared
+        run: sudo -E env "PATH=$PATH" bash tools/check_exporter.sh ${{ matrix.version }}
+
   stack:
     name: docker compose stack
     runs-on: ubuntu-latest

@@ -90,6 +90,10 @@ You can try the collector without any router. Add the Compose network to
 docker compose run --rm flowpipe sample send collector 2055 --format ipfix
 ```
 
+The collector is also tested against a real, independent exporter: CI runs `softflowd` on live
+HTTP traffic as NetFlow v5, v9 and IPFIX and checks that every flow it reports is stored with
+identical byte and packet counts (`tools/check_exporter.sh`).
+
 ### Privacy
 
 Flow data shows who talks to whom. Set `FLOWPIPE_ANONYMISE_KEY` and every address is replaced

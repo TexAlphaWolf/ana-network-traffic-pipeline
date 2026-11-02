@@ -10,5 +10,6 @@
 - CLI: `init-db`, `ingest`, `watch`, `collect`, `anomalies`, `top`, `report`, `status`, `sample`.
 - Text and HTML reports.
 - Grafana dashboard, provisioned datasource, read-only database user.
+- Interoperability test with a real exporter (softflowd, NetFlow v5/v9/IPFIX) in CI.
 - Keyed IP anonymisation.
 - Docker Compose stack, CI (tests on real ClickHouse, Windows, full stack), CodeQL, Dependabot.
