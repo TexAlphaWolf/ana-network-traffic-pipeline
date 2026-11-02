@@ -119,11 +119,20 @@ jobs:
           grep -q '"status":"OK"' health.json
           curl -fsS -u "admin:$GRAFANA_ADMIN_PASSWORD" \
             http://127.0.0.1:3000/api/dashboards/uid/flowpipe-overview | grep -q '"Network traffic"'
-      - name: The read-only Grafana user cannot write
+      - name: A real dashboard query runs through Grafana
+        run: |
+          set -a; . ./.env; set +a
+          curl -fsS -u "admin:$GRAFANA_ADMIN_PASSWORD" -H 'Content-Type: application/json' \
+            http://127.0.0.1:3000/api/ds/query -d '{"from":"now-6h","to":"now","queries":[{"refId":"A","datasource":{"type":"grafana-clickhouse-datasource","uid":"flowpipe-clickhouse"},"rawSql":"SELECT count() AS flows FROM flowpipe.flows","format":1}]}' | tee query.json
+          grep -q '"error"' query.json && exit 1 || true
+      - name: The read-only Grafana user cannot write but may tune its own queries
         run: |
           set -a; . ./.env; set +a
           code=$(curl -s -o /dev/null -w '%{http_code}' -u "grafana:$GRAFANA_CLICKHOUSE_PASSWORD" \
             http://127.0.0.1:8123/ --data 'DROP TABLE flowpipe.flows')
           test "$code" = "403"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -u "grafana:$GRAFANA_CLICKHOUSE_PASSWORD" \
+            "http://127.0.0.1:8123/?max_execution_time=60" --data 'SELECT 1')
+          test "$code" = "200"
       - if: failure()
         run: docker compose --profile netflow logs --no-color | tail -150

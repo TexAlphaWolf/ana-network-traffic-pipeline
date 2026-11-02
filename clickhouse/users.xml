@@ -28,9 +28,17 @@
 
   <profiles>
     <readonly>
-      <readonly>1</readonly>
+      <!-- 2 = no writes or DDL, but the Grafana plugin may change per-query settings
+           such as max_execution_time (1 would reject every query it sends). -->
+      <readonly>2</readonly>
       <max_execution_time>30</max_execution_time>
       <max_result_rows>100000</max_result_rows>
+      <constraints>
+        <!-- Settings stay adjustable, but only inside safe bounds. -->
+        <max_execution_time><max>120</max></max_execution_time>
+        <max_result_rows><readonly/></max_result_rows>
+        <readonly><readonly/></readonly>
+      </constraints>
     </readonly>
   </profiles>
 </clickhouse>

@@ -10,6 +10,10 @@ something unusual happens.** flowpipe reads **pcap/pcapng captures** and **NetFl
 exports, stores them as flows in **ClickHouse**, finds **traffic spikes and port scans**, and
 ships a ready-made **Grafana** dashboard.
 
+![Grafana dashboard on the sample data](docs/grafana.png)
+
+*The Grafana dashboard on the bundled sample capture: the 90 MB/min upload spike is visible in the traffic graph, with four anomalies flagged.*
+
 ![Report generated from the sample data](docs/report.png)
 
 *The text and HTML reports (`flowpipe report`) on the built-in sample: a 90 MB/min upload
