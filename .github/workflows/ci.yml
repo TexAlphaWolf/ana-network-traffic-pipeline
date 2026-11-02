@@ -99,7 +99,7 @@ jobs:
       - run: pip install .
       - run: sudo apt-get install -y --no-install-recommends softflowd
       - name: Real HTTP traffic, exported by softflowd, collected and compared
-        run: sudo -E env "PATH=$PATH" bash tools/check_exporter.sh ${{ matrix.version }}
+        run: bash tools/check_exporter.sh ${{ matrix.version }}
 
   stack:
     name: docker compose stack
